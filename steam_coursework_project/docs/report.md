@@ -1,156 +1,156 @@
 ---
-title: "Course Work Report: Digital Game Distribution Platform (Steam-like Service)"
+title: "Курсовая работа: платформа цифровой дистрибуции игр (аналог Steam)"
 ---
 
-# 1. Scope
+# 1. Предметная область
 
-The topic is a Steam-like platform. Users buy digital games, add games to a wishlist, write reviews and earn achievements. Business analysts track sales and user activity. The DBMS is PostgreSQL 16. The OLTP and OLAP parts live in two separate databases: `steam_oltp_db` (schema `steam_oltp`) and `steam_dwh_db` (schema `steam_dwh`).
+Тема работы: платформа в духе Steam. Пользователи покупают цифровые игры, добавляют их в список желаемого, пишут отзывы и получают достижения. Аналитики платформы следят за продажами и активностью пользователей. СУБД: PostgreSQL 16. OLTP и OLAP живут в двух отдельных базах: `steam_oltp_db` (схема `steam_oltp`) и `steam_dwh_db` (схема `steam_dwh`).
 
-# 2. OLTP database context
+# 2. OLTP-база данных
 
-The OLTP database stores accounts, countries, games, developers, publishers, genres, purchases, reviews, achievements, wishlists and the price history of every game. The schema has 13 tables in 3NF. Many-to-many links (games and genres, users and achievements) use junction tables. Every non-key attribute depends only on the key of its table.
+OLTP-база хранит учётные записи, страны, игры, разработчиков, издателей, жанры, покупки, отзывы, достижения, списки желаемого и историю цен каждой игры. Схема состоит из 13 таблиц в третьей нормальной форме. Связи «многие ко многим» (игры и жанры, пользователи и достижения) идут через связующие таблицы. Каждый неключевой атрибут зависит только от ключа своей таблицы.
 
-![OLTP logical schema](../diagrams/oltp_schema.png){width=16cm}
+![Логическая схема OLTP](../diagrams/oltp_schema.png){width=16cm}
 
-| Table | Purpose | Key and constraints |
+| Таблица | Назначение | Ключи и ограничения |
 |---|---|---|
-| countries | Country reference | PK country_id, UNIQUE country_code |
-| users | Customer accounts | PK user_id, UNIQUE username and email, FK country_id |
-| developers, publishers | Studios and publishers | PK id, UNIQUE name, FK country_id |
-| games | Game catalog | PK game_id, UNIQUE game_slug, FK developer_id and publisher_id, CHECK base_price >= 0 |
-| genres, game_genres | Genre dictionary and link | PK (game_id, genre_id) |
-| purchases | Purchase transactions | UNIQUE purchase_code, UNIQUE (user_id, game_id), CHECK discount 0 to 100, payment method card or wallet |
-| reviews | Ratings and comments | UNIQUE (user_id, game_id), CHECK rating 1 to 5 |
-| achievements, user_achievements | Achievements per game and who earned them | UNIQUE (game_id, achievement_name), PK (user_id, achievement_id) |
-| wishlist | Saved games | PK (user_id, game_id) |
-| price_history | Price versions of a game | UNIQUE (game_id, valid_from), exclusion constraint against overlapping intervals, one open interval per game |
+| countries | Справочник стран | PK country_id, UNIQUE country_code |
+| users | Учётные записи покупателей | PK user_id, UNIQUE username и email, FK country_id |
+| developers, publishers | Студии-разработчики и издатели | PK id, UNIQUE name, FK country_id |
+| games | Каталог игр | PK game_id, UNIQUE game_slug, FK developer_id и publisher_id, CHECK base_price >= 0 |
+| genres, game_genres | Справочник жанров и связь игр с жанрами | PK (game_id, genre_id) |
+| purchases | Покупки | UNIQUE purchase_code, UNIQUE (user_id, game_id), CHECK скидка от 0 до 100, способ оплаты card или wallet |
+| reviews | Оценки и комментарии | UNIQUE (user_id, game_id), CHECK оценка от 1 до 5 |
+| achievements, user_achievements | Достижения игр и кто их получил | UNIQUE (game_id, achievement_name), PK (user_id, achievement_id) |
+| wishlist | Список желаемого | PK (user_id, game_id) |
+| price_history | Версии цены игры | UNIQUE (game_id, valid_from), ограничение-исключение против пересекающихся интервалов, одна открытая цена на игру |
 
-`games.base_price` is the launch list price. The price valid on a given day comes from `price_history`. A purchase stores `paid_amount = list price on purchase date * (1 - discount_percent / 100)`. The function `steam_oltp.change_price(slug, new_price, effective_date)` closes the open interval and opens a new one.
+`games.base_price` хранит цену на момент релиза. Цену, которая действовала в конкретный день, база берёт из `price_history`. Покупка хранит `paid_amount = цена на дату покупки * (1 - discount_percent / 100)`. Функция `steam_oltp.change_price(slug, new_price, effective_date)` закрывает открытый интервал цены и открывает новый.
 
-# 3. Data and loading
+# 3. Данные и загрузка
 
-The data set has five CSV files, each with one table and no surrogate keys. Rows refer to each other by business identifiers: `username`, `game_slug`, `country_code`, `purchase_code`.
+Набор данных состоит из пяти CSV-файлов, по одной таблице в каждом, без суррогатных ключей. Строки ссылаются друг на друга через бизнес-идентификаторы: `username`, `game_slug`, `country_code`, `purchase_code`.
 
-| File | Content |
+| Файл | Содержимое |
 |---|---|
-| users.csv | 60 accounts with country and registration date |
-| games.csv | 12 games with developer, publisher, their countries and genres separated by `\|` |
-| price_history.csv | 42 price intervals, non-overlapping |
-| purchases.csv | 165 purchases, one per user and game |
-| user_activity.csv | 544 events: `wishlist`, `review` and `achievement` rows in one file |
+| users.csv | 60 учётных записей со страной и датой регистрации |
+| games.csv | 12 игр с разработчиком, издателем, их странами и жанрами через `\|` |
+| price_history.csv | 42 непересекающихся интервала цен |
+| purchases.csv | 165 покупок, не больше одной на пару пользователь и игра |
+| user_activity.csv | 544 события: строки `wishlist`, `review` и `achievement` в одном файле |
 
-`tools/generate_data.py` rebuilds the files with a fixed seed. It enforces these rules: one purchase and one review per user and game, no purchase before registration or release, reviews and achievements after the purchase, achievements only for owned games, and `paid_amount` computed from the price version valid on the purchase date. Countries are a fixed dictionary inside the load script.
+`tools/generate_data.py` пересоздаёт файлы с фиксированным seed и соблюдает правила: одна покупка и один отзыв на пару пользователь и игра, покупка не раньше регистрации и релиза, отзывы и достижения после покупки, достижения только по купленным играм, `paid_amount` считается от цены, действовавшей на дату покупки. Страны заданы фиксированным справочником внутри скрипта загрузки.
 
-`sql/02_load_csv_to_oltp.sql` loads each file into a temporary staging table and resolves business identifiers to foreign keys. Every upsert uses `ON CONFLICT ... DO UPDATE ... WHERE (old values) IS DISTINCT FROM (new values)`. A row whose values did not change is not touched, and the script can run any number of times. A closed price interval is history: the loader never reopens it. The whole load runs in one transaction. At the end it prints the number of CSV rows that could not be matched to a user, game or country (expected: 0).
+`sql/02_load_csv_to_oltp.sql` загружает каждый файл во временную staging-таблицу и находит по бизнес-идентификаторам внешние ключи. Каждая вставка использует `ON CONFLICT ... DO UPDATE ... WHERE (старые значения) IS DISTINCT FROM (новые значения)`. Скрипт не трогает строку, если её значения не изменились, поэтому его можно запускать сколько угодно раз. Закрытый интервал цены считается историей, и загрузчик его не переоткрывает. Вся загрузка идёт в одной транзакции. В конце скрипт выводит число строк CSV, для которых не нашлись пользователь, игра или страна (ожидается 0).
 
-# 4. OLAP database context
+# 4. OLAP-база данных
 
-The warehouse answers these questions:
+Хранилище отвечает на вопросы:
 
-1. Which games and genres bring the highest revenue?
-2. How do revenue, units and discounts change by month and year?
-3. Which countries and regions buy the most?
-4. How do current prices relate to historical sales, and what did each price version earn?
-5. How do reviews, achievements and wishlist adds relate to engagement per game?
+1. Какие игры и жанры приносят больше всего выручки?
+2. Как меняются выручка, число продаж и скидки по месяцам и годам?
+3. Какие страны и регионы покупают больше всего?
+4. Как текущие цены соотносятся с прошлыми продажами и сколько заработала каждая версия цены?
+5. Как отзывы, достижения и добавления в список желаемого отражают вовлечённость по играм?
 
-![OLAP logical schema](../diagrams/olap_schema.png){width=16cm}
+![Логическая схема OLAP](../diagrams/olap_schema.png){width=16cm}
 
-| Object | Role |
+| Объект | Роль |
 |---|---|
-| fact_sales | Fact 1. One row per purchase: units, gross revenue (list price of the SCD version), discount, net revenue |
-| fact_user_activity | Fact 2, aggregated. Reviews, achievements, points, wishlist adds and average rating per day, user and game |
+| fact_sales | Факт 1. Одна строка на покупку: количество, валовая выручка (цена версии SCD), скидка, чистая выручка |
+| fact_user_activity | Факт 2, агрегированный. Отзывы, достижения, очки, добавления в список желаемого и средняя оценка за день по пользователю и игре |
 | dim_game_price_scd | SCD Type 2: price, valid_from, valid_to, is_current |
-| bridge_game_genre | Bridge between games and genres with weight 1 / number of genres |
-| dim_date, dim_user, dim_game, dim_genre, dim_payment_method | Dimensions |
-| dim_country, dim_developer, dim_publisher | Snowflaked: user, developer and publisher point to dim_country |
-| etl_rejects | Records the ETL refused to load, with the reason |
+| bridge_game_genre | Bridge-таблица между играми и жанрами с весом 1 / число жанров |
+| dim_date, dim_user, dim_game, dim_genre, dim_payment_method | Измерения |
+| dim_country, dim_developer, dim_publisher | Snowflake: пользователь, разработчик и издатель ссылаются на dim_country |
+| etl_rejects | Записи, которые ETL отказался загружать, с причиной |
 
-The model differs from OLTP in three ways. Facts hold measures (gross revenue, discount, net revenue, points) that OLTP does not store. `fact_user_activity` merges three OLTP tables into one aggregated grain. Genres are reached through a weighted bridge, so allocated revenue adds up to the total.
+Модель отличается от OLTP тремя вещами. Факты хранят меры (валовая выручка, скидка, чистая выручка, очки), которых нет в OLTP. `fact_user_activity` сводит три таблицы OLTP в одну агрегированную строку за день. Жанры подключены через bridge-таблицу с весами, поэтому выручка по жанрам в сумме равна общей выручке.
 
 # 5. ETL
 
-`sql/04_etl_oltp_to_olap.sql` connects the DWH database to the OLTP database through `postgres_fdw` and runs these steps in one transaction:
+`sql/04_etl_oltp_to_olap.sql` подключает хранилище к OLTP-базе через `postgres_fdw` и выполняет шаги в одной транзакции:
 
-1. **Reference data.** Countries, payment methods and a calendar from 2025-01-01 to 2026-12-31 define the permissible values.
-2. **Dimensions.** Upserts with the same `IS DISTINCT FROM` guard as the loader.
-3. **SCD Type 2.** A version that ended in OLTP gets `valid_to` and `is_current = FALSE`. A price version that does not exist yet becomes a new row. A different price for an existing version is refused and logged, because history is immutable.
-4. **fact_sales.** Staging table `steam_stg.stg_sales`, then validation: date inside the calendar, known user, game and payment method, a price version valid on the purchase date, discount 0 to 100, no negative amount, no purchase before registration, `paid_amount` equal to list price and discount within one cent. Rejected rows go to `etl_rejects`, valid rows are published.
-5. **fact_user_activity.** Reviews, achievements and wishlist rows enter `steam_stg.stg_activity`, pass validation (dates, keys, rating 1 to 5), then are aggregated and published.
-6. **Control totals.** Row counts and net revenue are printed.
+1. **Справочные данные.** Страны, способы оплаты и календарь с 2025-01-01 по 2026-12-31 задают допустимые значения.
+2. **Измерения.** Вставка с той же проверкой `IS DISTINCT FROM`, что и в загрузчике.
+3. **SCD Type 2.** Версия, которая закончилась в OLTP, получает `valid_to` и `is_current = FALSE`. Новая версия цены становится новой строкой. Если цена существующей версии в OLTP изменилась, ETL отказывает и пишет это в журнал: история неизменна.
+4. **fact_sales.** Данные попадают в staging-таблицу `steam_stg.stg_sales` и проходят проверки: дата внутри календаря, известны пользователь, игра и способ оплаты, на дату покупки есть версия цены, скидка от 0 до 100, сумма не отрицательная, покупка не раньше регистрации, `paid_amount` совпадает с ценой и скидкой с точностью до цента. Отклонённые строки уходят в `etl_rejects`, корректные публикуются.
+5. **fact_user_activity.** Отзывы, достижения и строки списка желаемого попадают в `steam_stg.stg_activity`, проходят проверки (даты, ключи, оценка от 1 до 5), затем агрегируются и публикуются.
+6. **Контрольные суммы.** Скрипт выводит число строк и чистую выручку.
 
-# 6. Run order
+# 6. Порядок запуска
 
-Run all scripts from the `sql` folder with `psql`. Replace the connection options with your own.
+Все скрипты запускаются через `psql` из папки `sql`, иначе загрузчик не найдёт CSV-файлы.
 
-| Step | Command | Result |
+| Шаг | Команда | Результат |
 |---|---|---|
-| 1 | `psql -U postgres -f 00_create_databases.sql` | Creates both databases |
-| 2 | `psql -U postgres -f 01_create_oltp.sql` | OLTP tables |
-| 3 | `psql -U postgres -f 02_load_csv_to_oltp.sql` | Loads the CSV files (rerunnable) |
-| 4 | `psql -U postgres -f 03_create_olap.sql` | DWH tables |
-| 5 | `psql -U postgres -f 04_etl_oltp_to_olap.sql` | ETL (rerunnable) |
-| 6 | `psql -U postgres -f 05_queries_oltp.sql` | 5 OLTP queries |
-| 7 | `psql -U postgres -f 06_queries_olap.sql` | 6 OLAP queries |
-| 8 | `psql -U postgres -f 07_demo_scd2.sql` | Price change demo for the defense |
+| 1 | `psql -U postgres -f 00_create_databases.sql` | Создаёт обе базы |
+| 2 | `psql -U postgres -f 01_create_oltp.sql` | Таблицы OLTP |
+| 3 | `psql -U postgres -f 02_load_csv_to_oltp.sql` | Загрузка CSV (можно перезапускать) |
+| 4 | `psql -U postgres -f 03_create_olap.sql` | Таблицы хранилища |
+| 5 | `psql -U postgres -v oltp_password=ПАРОЛЬ -f 04_etl_oltp_to_olap.sql` | ETL (можно перезапускать) |
+| 6 | `psql -U postgres -f 05_queries_oltp.sql` | 5 запросов к OLTP |
+| 7 | `psql -U postgres -f 06_queries_olap.sql` | 6 запросов к OLAP |
+| 8 | `psql -U postgres -v oltp_password=ПАРОЛЬ -f 07_demo_scd2.sql` | Демонстрация смены цены для защиты |
 
-If the OLTP database is on another host, pass `-v oltp_host=... -v oltp_port=... -v oltp_user=... -v oltp_password=...` to steps 5 and 8. `99_reset.sql` drops both databases.
+Шаги 5 и 8 подключаются к OLTP-базе через `postgres_fdw`, поэтому им нужен пароль пользователя `postgres` в параметре `oltp_password`. Если OLTP-база стоит на другом сервере, добавьте `-v oltp_host=... -v oltp_port=... -v oltp_user=...`. Параметр `-v ON_ERROR_STOP=1` останавливает скрипт на первой ошибке. `99_reset.sql` удаляет обе базы.
 
-# 7. Queries
+# 7. Запросы
 
-Each OLTP and OLAP script answers questions over the same data, so results can be compared. OLTP query 4 and OLAP query 1 both compute revenue by genre. The totals match to the cent (2,953.24 net revenue in both databases). OLAP query 3 lists every price version of every game with the units and revenue sold at that price.
+Скрипты для OLTP и OLAP отвечают на вопросы по одним и тем же данным, поэтому результаты можно сравнить. Запрос 4 к OLTP и запрос 1 к OLAP считают выручку по жанрам. Итоги совпадают до цента: 2 953,24 чистой выручки в обеих базах. Запрос 3 к OLAP выводит каждую версию цены каждой игры с числом продаж и выручкой по этой цене.
 
-# 8. Power BI report
+# 8. Отчёт Power BI
 
-The report `powerbi/Steam_OLAP_Dashboard.pbix` connects to `steam_dwh_db` in Import mode and loads ten tables of schema `steam_dwh`: two facts, the bridge and seven dimensions. `etl_rejects` and the staging schema stay out of the model. Build steps and the DAX code are in `powerbi/POWERBI_GUIDE.md`.
+Отчёт `powerbi/Steam_OLAP_Dashboard.pbix` подключается к `steam_dwh_db` в режиме импорта и загружает десять таблиц схемы `steam_dwh`: два факта, bridge-таблицу и семь измерений. `etl_rejects` и staging-схема в модель не входят. Шаги сборки и код DAX описаны в `powerbi/POWERBI_GUIDE.md`.
 
-![Power BI page Sales Overview](../diagrams/powerbi_dashboard.png){width=16cm}
+![Страница Power BI Sales Overview](../diagrams/powerbi_dashboard.png){width=16cm}
 
-**Transformations in Power Query**
+**Преобразования в Power Query**
 
-- `fact_sales`: `gross_revenue`, `discount_amount` and `net_revenue` changed to fixed decimal number, `units_sold` to whole number.
-- `dim_game`: `age_rating` changed to uppercase.
-- `dim_date`: rows filtered to years 2025 and 2026, `full_date` typed as Date.
-- `dim_game_price_scd`: `valid_from` and `valid_to` typed as Date.
-- Tables renamed without the schema prefix, `month_name` sorted by `month`.
+- `fact_sales`: `gross_revenue`, `discount_amount` и `net_revenue` переведены в фиксированное десятичное число, `units_sold` в целое.
+- `dim_game`: `age_rating` переведён в верхний регистр.
+- `dim_date`: оставлены строки за 2025 и 2026 годы, `full_date` получил тип «Дата».
+- `dim_game_price_scd`: `valid_from` и `valid_to` получили тип «Дата».
+- Таблицы переименованы без префикса схемы, `month_name` отсортирован по `month`.
 
-**Model**
+**Модель**
 
-Relationships run many-to-one from the facts to the dimensions, with single-direction filters. `dim_user` points to `dim_country`, so the country slicer filters both facts. The relationship from `dim_game_price_scd` to `dim_game` stays inactive, because an active one would open a second path from `dim_game` to `fact_sales`. The measure Current Price switches it on with `USERELATIONSHIP`.
+Связи идут от фактов к измерениям по схеме «многие к одному», фильтр работает в одном направлении. `dim_user` ссылается на `dim_country`, поэтому срез по стране фильтрует оба факта. Связь `dim_game_price_scd` с `dim_game` оставлена неактивной: активная связь открыла бы второй путь от `dim_game` к `fact_sales`. Мера Current Price включает её через `USERELATIONSHIP`.
 
-**Measures**
+**Меры**
 
-- Net Revenue, Gross Revenue, Units Sold: sums over `fact_sales`.
-- Discount Share: discount amount divided by gross revenue.
-- Avg Rating: average review rating weighted by the number of reviews.
-- Current Price: price of the SCD Type 2 version with `is_current = TRUE`.
-- Allocated Revenue by Genre: net revenue of each game multiplied by its bridge weight, so genre values add up to total revenue.
+- Net Revenue, Gross Revenue, Units Sold: суммы по `fact_sales`.
+- Discount Share: сумма скидок, делённая на валовую выручку.
+- Avg Rating: средняя оценка, взвешенная по числу отзывов.
+- Current Price: цена версии SCD Type 2 с `is_current = TRUE`.
+- Allocated Revenue by Genre: чистая выручка каждой игры, умноженная на её вес в bridge-таблице. Выручка по жанрам в сумме равна общей.
 
-**Page layout**
+**Страница отчёта**
 
-| Element | Fields | Question it answers |
+| Элемент | Поля | На какой вопрос отвечает |
 |---|---|---|
-| Title | Steam-like Platform Sales Dashboard | |
-| Three cards | Net Revenue, Units Sold, Avg Rating | What are the totals for the selected period and country? |
-| Slicer (dropdown) | `dim_date[year]`, `dim_date[month_name]` | Narrows every visual to a year or month |
-| Slicer (list) | `dim_country[country_name]` | Narrows every visual to one or more countries |
-| Line chart | `dim_date[year_month]`, Net Revenue | Which months earned the most? |
-| Bar chart | `dim_game[title]`, Net Revenue | Which games bring the most revenue? |
-| Pie chart | `dim_genre[genre_name]`, Allocated Revenue by Genre | Which genres bring the most revenue? |
-| Table | `dim_game[title]`, Current Price, Units Sold, Net Revenue | How does the current price compare with past sales? |
+| Заголовок | Steam-like Platform Sales Dashboard | |
+| Три карточки | Net Revenue, Units Sold, Avg Rating | Какие итоги за выбранный период и страну? |
+| Срез (раскрывающийся список) | `dim_date[year]`, `dim_date[month_name]` | Сужает все визуалы до года или месяца |
+| Срез (список) | `dim_country[country_name]` | Сужает все визуалы до одной или нескольких стран |
+| Линейный график | `dim_date[year_month]`, Net Revenue | Какие месяцы принесли больше всего выручки? |
+| Линейчатая диаграмма | `dim_game[title]`, Net Revenue | Какие игры приносят больше всего выручки? |
+| Круговая диаграмма | `dim_genre[genre_name]`, Allocated Revenue by Genre | Какие жанры приносят больше всего выручки? |
+| Таблица | `dim_game[title]`, Current Price, Units Sold, Net Revenue | Как текущая цена соотносится с прошлыми продажами? |
 
-**Findings with no slicer selected**
+**Выводы без выбранных срезов**
 
-- Net revenue is EUR 2,953.24 from 165 purchases. Both numbers match the SQL control totals of the ETL.
-- Sales run from May 2025 to May 2026. May 2026 is the best month with EUR 506.97, November 2025 the second with EUR 437.33.
-- Baldur's Gate 3 earns the most (EUR 739.68). Portal 2 sells the most copies (25).
-- Adventure leads the genres with EUR 888.55 (30.09%), RPG follows with EUR 475.42.
-- Counter-Strike 2 and Dota 2 account for 31 purchases at EUR 0: free games added to a library.
-- The average review rating is 3.01 out of 5.
+- Чистая выручка составляет 2 953,24 EUR за 165 покупок. Обе цифры совпадают с контрольными суммами ETL.
+- Продажи идут с мая 2025 по май 2026 года. Лучший месяц: май 2026 (506,97 EUR), второй: ноябрь 2025 (437,33 EUR).
+- Больше всего зарабатывает Baldur's Gate 3 (739,68 EUR). Больше всего копий продаёт Portal 2 (25).
+- Среди жанров лидирует Adventure: 888,55 EUR (30,09%). На втором месте RPG с 475,42 EUR.
+- На Counter-Strike 2 и Dota 2 приходится 31 покупка на 0 EUR: так платформа записывает добавление бесплатной игры в библиотеку.
+- Средняя оценка в отзывах: 3,01 из 5.
 
-# 9. Defense notes
+# 9. Тезисы для защиты
 
-- OLTP has 13 tables in 3NF. CSV files have no surrogate keys and number five.
-- Load and ETL scripts do not modify rows whose values did not change. A test run of both scripts left every row version in both databases identical.
-- OLAP is a separate database, a snowflake with two facts, one SCD Type 2 and one bridge. One fact is an aggregation of three OLTP tables.
-- The SCD demo (`07_demo_scd2.sql`) changes the price of Hades in OLTP. The ETL closes the version valid until 2026-06-30 and adds a current version at 19.99.
-- The ETL validates data and keeps refused records with a reason in `etl_rejects`.
+- OLTP состоит из 13 таблиц в 3НФ. CSV-файлов пять, суррогатных ключей в них нет.
+- Скрипты загрузки и ETL не меняют строки, значения которых не изменились. Повторный прогон обоих скриптов оставил версии всех строк в обеих базах прежними.
+- OLAP лежит в отдельной базе: snowflake с двумя фактами, одной SCD Type 2 и одной bridge-таблицей. Один из фактов агрегирует три таблицы OLTP.
+- Демонстрация SCD (`07_demo_scd2.sql`) меняет цену Hades в OLTP. ETL закрывает версию, действовавшую до 2026-06-30, и добавляет текущую версию по цене 19,99.
+- ETL проверяет данные и сохраняет отклонённые записи с причиной в `etl_rejects`.
