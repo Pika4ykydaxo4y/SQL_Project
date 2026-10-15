@@ -1,6 +1,6 @@
 # Power BI report: build guide
 
-The shipped `Steam_OLAP_Dashboard.pbix` has an empty page and points to the old model. Build the report in a new file or repoint the old one as described below.
+`Steam_OLAP_Dashboard.pbix` holds the finished report. The steps below rebuild it from an empty file.
 
 ## 1. Connect and transform
 
@@ -71,13 +71,13 @@ SUMX (
 | Slicer 2 | Slicer (list) | dim_country[country_name] |
 | Line chart | Line chart | X: dim_date[year_month], Y: Net Revenue |
 | Bar chart | Clustered bar | Y: dim_game[title], X: Net Revenue, sorted descending |
-| Donut chart | Donut | Legend: dim_genre[genre_name], Values: Allocated Revenue by Genre |
+| Pie chart | Pie | Legend: dim_genre[genre_name], Values: Allocated Revenue by Genre |
 | Table | Table | dim_game[title], Current Price, Units Sold, Net Revenue |
 
 Optional: a filled map with `dim_country[country_name]` and `Net Revenue`.
 
 ## 5. Check the numbers
 
-With no slicer selected, the card Net Revenue shows 2,953.24. The donut chart adds up to the same value. After running `07_demo_scd2.sql`, the table shows Hades with current price 19.99.
+With no slicer selected, the card Net Revenue shows 2,953.24. The pie chart adds up to the same value. After running `07_demo_scd2.sql`, the table shows Hades with current price 19.99.
 
 Save the file as `powerbi/Steam_OLAP_Dashboard.pbix`.

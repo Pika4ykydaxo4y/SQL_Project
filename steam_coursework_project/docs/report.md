@@ -101,7 +101,51 @@ Each OLTP and OLAP script answers questions over the same data, so results can b
 
 # 8. Power BI report
 
-The report connects to `steam_dwh_db` and imports the tables of schema `steam_dwh`. Import steps, relationships, DAX measures and the page layout are in `powerbi/POWERBI_GUIDE.md`. The page has a title, three KPI cards, two slicers (year and month, country), a line chart of net revenue by month, a bar chart of net revenue by game, a donut chart of genre allocated revenue and a table with current price, units and revenue.
+The report `powerbi/Steam_OLAP_Dashboard.pbix` connects to `steam_dwh_db` in Import mode and loads ten tables of schema `steam_dwh`: two facts, the bridge and seven dimensions. `etl_rejects` and the staging schema stay out of the model. Build steps and the DAX code are in `powerbi/POWERBI_GUIDE.md`.
+
+![Power BI page Sales Overview](../diagrams/powerbi_dashboard.png){width=16cm}
+
+**Transformations in Power Query**
+
+- `fact_sales`: `gross_revenue`, `discount_amount` and `net_revenue` changed to fixed decimal number, `units_sold` to whole number.
+- `dim_game`: `age_rating` changed to uppercase.
+- `dim_date`: rows filtered to years 2025 and 2026, `full_date` typed as Date.
+- `dim_game_price_scd`: `valid_from` and `valid_to` typed as Date.
+- Tables renamed without the schema prefix, `month_name` sorted by `month`.
+
+**Model**
+
+Relationships run many-to-one from the facts to the dimensions, with single-direction filters. `dim_user` points to `dim_country`, so the country slicer filters both facts. The relationship from `dim_game_price_scd` to `dim_game` stays inactive, because an active one would open a second path from `dim_game` to `fact_sales`. The measure Current Price switches it on with `USERELATIONSHIP`.
+
+**Measures**
+
+- Net Revenue, Gross Revenue, Units Sold: sums over `fact_sales`.
+- Discount Share: discount amount divided by gross revenue.
+- Avg Rating: average review rating weighted by the number of reviews.
+- Current Price: price of the SCD Type 2 version with `is_current = TRUE`.
+- Allocated Revenue by Genre: net revenue of each game multiplied by its bridge weight, so genre values add up to total revenue.
+
+**Page layout**
+
+| Element | Fields | Question it answers |
+|---|---|---|
+| Title | Steam-like Platform Sales Dashboard | |
+| Three cards | Net Revenue, Units Sold, Avg Rating | What are the totals for the selected period and country? |
+| Slicer (dropdown) | `dim_date[year]`, `dim_date[month_name]` | Narrows every visual to a year or month |
+| Slicer (list) | `dim_country[country_name]` | Narrows every visual to one or more countries |
+| Line chart | `dim_date[year_month]`, Net Revenue | Which months earned the most? |
+| Bar chart | `dim_game[title]`, Net Revenue | Which games bring the most revenue? |
+| Pie chart | `dim_genre[genre_name]`, Allocated Revenue by Genre | Which genres bring the most revenue? |
+| Table | `dim_game[title]`, Current Price, Units Sold, Net Revenue | How does the current price compare with past sales? |
+
+**Findings with no slicer selected**
+
+- Net revenue is EUR 2,953.24 from 165 purchases. Both numbers match the SQL control totals of the ETL.
+- Sales run from May 2025 to May 2026. May 2026 is the best month with EUR 506.97, November 2025 the second with EUR 437.33.
+- Baldur's Gate 3 earns the most (EUR 739.68). Portal 2 sells the most copies (25).
+- Adventure leads the genres with EUR 888.55 (30.09%), RPG follows with EUR 475.42.
+- Counter-Strike 2 and Dota 2 account for 31 purchases at EUR 0: free games added to a library.
+- The average review rating is 3.01 out of 5.
 
 # 9. Defense notes
 
